@@ -1,6 +1,7 @@
 import Express from "express";
 import bodyParser from "body-parser";
 import { Chess } from "./chess.js/chess.js";
+import { Server } from "./socket.io/socket.js";
 
 const app = Express();
 
