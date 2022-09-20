@@ -31,5 +31,5 @@ app.post("/api/status/:id([0-9]{5})", function(request, response) {
     return;
   };
   let board = games[parseInt(request.params.id)].board;
-  response.send(JSON.stringify({"turn": board.turn(), "moves": board.moves(), "board": board.board()}))
+  response.send(JSON.stringify({"turn": board.turn(), "moves": board.moves({verbose: true}), "board": board.board()}))
 });
