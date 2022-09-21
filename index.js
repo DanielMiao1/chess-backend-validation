@@ -2,6 +2,13 @@ import Express from "express";
 import bodyParser from "body-parser";
 import { Chess } from "./chess.js/chess.js";
 import "crypto";
+import http from "http";
+
+const server_url = "server.multiplayer-chess.gq";
+// const server_url = "localhost";
+
+const server_port = "45318";
+// const server_port = "3000";
 
 const app = Express();
 
@@ -45,5 +52,40 @@ app.post("/api/move/:id([0-9]{5})", function(request, response) {
     return;
   };
   board.move(request_body["move"]);
+  // axios.post(server_url + "/analyse", JSON.stringify({"hi": 2})).then(res => {
+  //   console.log(`statusCode: ${res.status}`);
+  //   console.log(res);
+  // }).catch(error => {
+  //   console.error(error);
+  // });
+  const data = JSON.stringify({
+    "asdfg": 3247,
+  });
+  
+  const options = {
+    hostname: server_url,
+    port: server_port,
+    path: '/analyse',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      'Content-Length': data.length,
+    },
+  };
+  
+  const req = http.request(options, res => {
+    console.log(`statusCode: ${res.statusCode}`);
+  
+    res.on('data', d => {
+      process.stdout.write(d);
+    });
+  });
+  
+  req.on('error', error => {
+    console.error(error);
+  });
+  
+  req.write(data);
+  req.end();  
   response.send("");
 });
