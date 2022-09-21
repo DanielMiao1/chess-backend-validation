@@ -25,6 +25,7 @@ app.post("/game", function(request, response) {
 });
 
 app.post("/api/status/:id([0-9]{5})", function(request, response) {
+  //TODO: filter out moves that are not available to the requesting player; e.g. using auth methods
   response.setHeader("Access-Control-Allow-Origin", "*");
   if (parseInt(request.params.id) > game_index) {
     response.status(400).send("");
@@ -32,4 +33,16 @@ app.post("/api/status/:id([0-9]{5})", function(request, response) {
   };
   let board = games[parseInt(request.params.id)].board;
   response.send(JSON.stringify({"turn": board.turn(), "moves": board.moves({verbose: true}), "board": board.board()}))
+});
+
+app.post("/api/move/:id([0-9]{5})", function(request, response) {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  let board = games[parseInt(request.params.id)].board;
+  let request_body = JSON.parse(request.body)
+  if (parseInt(request.params.id) > game_index || !board.moves().includes(request_body["move"])) {
+    response.status(400).send("");
+    return;
+  };
+  board.move(request_body["move"]);
+  response.send("");
 });
