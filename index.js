@@ -1,6 +1,7 @@
 import Express from "express";
 import bodyParser from "body-parser";
 import { Chess } from "./chess.js/chess.js";
+import "crypto";
 
 const app = Express();
 
