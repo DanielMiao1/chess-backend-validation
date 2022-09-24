@@ -15,8 +15,6 @@ const app = Express();
 var games = {};
 var game_index = 0;
 
-var game_uuids = {};
-
 app.use(bodyParser.text());
 
 app.listen(34874, function() {
@@ -42,7 +40,11 @@ app.post("/api/status/:id([0-9]{5})", function(request, response) {
     return;
   };
   let board = games[parseInt(request.params.id)].board;
-  response.send(JSON.stringify({"turn": board.turn(), "moves": board.moves({verbose: true}), "board": board.board()}))
+  if (games[parseInt(request.params.id)].type == 0 && board.turn() == "b") {
+    response.send(JSON.stringify({"turn": board.turn(), "moves": [], "board": board.board()}))
+  } else {
+    response.send(JSON.stringify({"turn": board.turn(), "moves": board.moves({verbose: true}), "board": board.board()}))
+  };
 });
 
 app.post("/api/move/:id([0-9]{5})", function(request, response) {
@@ -70,11 +72,9 @@ app.post("/api/move/:id([0-9]{5})", function(request, response) {
           hostname: server_url,
           port: server_port,
           path: "/result",
-          headers: {"Content-Type": "text/plain", "-x-uuid": uuid, "-x-fen": board.fen()}
+          headers: {"Content-Type": "text/plain", "-x-uuid": uuid, "-x-fen": board.fen(), "-x-board-id": games[parseInt(request.params.id)].id}
         }, (result) => {
-          result.on("data", (data) => {
-            game_uuids[uuid] = request.params.id
-          });
+          result.on("data", () => {});
         });
         
         request_.on("error", error => {
@@ -98,4 +98,19 @@ app.post("/api/move/:id([0-9]{5})", function(request, response) {
   response.send("");
 });
 
-// parseInt(crypto.randomBytes(4).toString("hex"), 16) * parseInt(process.env.SECRET)
+app.post("/result", function(request, response) {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  // HTTPS request
+  if (!request.headers["-x-board-id"]) {
+    response.status(400);
+    response.end();
+    return;
+  } else if ((parseInt(request.headers["-x-board-id"]) - parseInt(process.env.SECRET3) + parseInt(process.env.SECRET2)) / parseInt(process.env.SECRET3) > game_index) {
+    response.status(400);
+    response.end();
+    return;
+  };
+  let board = games[(parseInt(request.headers["-x-board-id"]) - parseInt(process.env.SECRET3) + parseInt(process.env.SECRET2)) / parseInt(process.env.SECRET3)].board;
+  board.move(request.body, {sloppy: true});
+  response.end()
+});
