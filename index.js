@@ -28,22 +28,66 @@ app.get("/", function(request, response) {
 app.post("/game", function(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   game_index++;
-  games[game_index] = {"id": game_index, "type": JSON.parse(request.body)["type"], board: new Chess()};
-  response.send("0".repeat(5 - game_index.toString().length) + game_index.toString());
+  let auth_key = crypto.randomBytes(64).toString("hex");
+  games[game_index] = {"id": game_index, "type": JSON.parse(request.body)["type"], "board": new Chess(), "joined": (JSON.parse(request.body)["type"] == 0 ? true : false), "auth1": auth_key};
+  response.send(JSON.stringify({"id": "0".repeat(5 - game_index.toString().length) + game_index.toString(), "auth_key": auth_key}));
 });
 
-app.post("/api/status/:id([0-9]{5})", function(request, response) {
-  //TODO: filter out moves that are not available to the requesting player; e.g. using auth methods
+app.post("/api/join_status/:id([0-9]{5})", function(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   if (parseInt(request.params.id) > game_index) {
     response.status(400).send("");
     return;
   };
+  if (games[parseInt(request.params.id)]) {
+    response.send(JSON.stringify(games[parseInt(request.params.id)]["joined"]));
+  } else {
+    response.status(400);
+    response.end();
+  }
+})
+
+app.post("/api/status/:id([0-9]{5})", function(request, response) {
+  // TODO: filter out moves that are not available to the requesting player; e.g. using auth methods
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  if (parseInt(request.params.id) > game_index) {
+    response.status(400).send("");
+    return;
+  };  
+  if (games[parseInt(request.params.id)]["type"] == "1" && !games[parseInt(request.params.id)]["joined"]) {
+    games[parseInt(request.params.id)]["joined"] = true;
+    let auth_key = crypto.randomBytes(64).toString("hex");
+    games[parseInt(request.params.id)]["auth2"] = auth_key;
+    response.send(JSON.stringify({"auth": auth_key}))
+    return;
+  }
   let board = games[parseInt(request.params.id)].board;
   if (games[parseInt(request.params.id)].type == 0 && board.turn() == "b") {
     response.send(JSON.stringify({"turn": board.turn(), "moves": [], "board": board.board()}))
   } else {
-    response.send(JSON.stringify({"turn": board.turn(), "moves": board.moves({verbose: true}), "board": board.board()}))
+    let game = games[parseInt(request.params.id)];
+    let data = {"turn": board.turn(), "board": board.board()};
+    if (!game["joined"]) {
+      data["moves"] = [];
+      response.send(JSON.stringify(data));
+    };
+    if (request.body == game["auth1"]) {
+      if (board.turn() == "w") {
+        data["moves"] = board.moves({ verbose: true });
+      } else {
+        data["moves"] = [];
+      };
+      response.send(JSON.stringify(data))
+    } else if (request.body == game["auth2"]) {
+      if (board.turn() == "b") {
+        data["moves"] = board.moves({ verbose: true });
+      } else {
+        data["moves"] = [];
+      };
+      response.send(JSON.stringify(data))
+    } else {
+      response.send(JSON.stringify({"turn": board.turn(), "moves": [], "board": board.board()}))
+    };
   };
 });
 
@@ -74,11 +118,13 @@ app.post("/api/move/:id([0-9]{5})", function(request, response) {
           path: "/result",
           headers: {"Content-Type": "text/plain", "-x-uuid": uuid, "-x-fen": board.fen(), "-x-board-id": games[parseInt(request.params.id)].id}
         }, (result) => {
-          result.on("data", () => {});
+          result.on("data", (data) => {
+            console
+          });
         });
         
         request_.on("error", error => {
-          console.log("From 2nd step of 3WH;");
+          console.error("From 2nd step of 3WH;");
           console.error(error);
         });
         
@@ -88,7 +134,7 @@ app.post("/api/move/:id([0-9]{5})", function(request, response) {
     });
     
     request_.on("error", error => {
-      console.log("From 1st step of 3WH;");
+      console.error("From 1st step of 3WH;");
       console.error(error);
     });
     
@@ -114,3 +160,4 @@ app.post("/result", function(request, response) {
   board.move(request.body, {sloppy: true});
   response.end()
 });
+
