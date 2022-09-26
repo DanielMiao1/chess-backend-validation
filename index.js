@@ -4,7 +4,7 @@ import { Chess } from "chess.js";
 import crypto from "crypto";
 import http from "http";
 
-const server_url = "server.multiplayer-chess.gq";
+const server_url = "server.multiplayerchess.gq";
 // const server_url = "localhost";
 
 const server_port = "45318";
@@ -22,7 +22,7 @@ app.listen(34874, function() {
 });
 
 app.get("/", function(request, response) {
-  response.redirect("https://multiplayer-chess.gq/");
+  response.redirect("https://multiplayerchess.gq/");
 });
 
 app.post("/game", function(request, response) {
