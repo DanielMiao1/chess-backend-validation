@@ -3,6 +3,7 @@ import bodyParser from "body-parser";
 import { Chess } from "chess.js";
 import crypto from "crypto";
 import http from "http";
+import fetch from "node-fetch";
 
 const server_url = process.env.SERVER_URL;
 // const server_url = "localhost";
@@ -14,6 +15,21 @@ const app = Express();
 
 var games = {};
 var game_index = 0;
+
+
+async function query(path, method="GET", body=undefined) {
+  // /v2/keyspaces/chess/dev1/rows
+  let request = await fetch(`https://${process.env.ASTRA_DB_ID}-${process.env.ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest${path}`, {
+    method: method,
+    body: body,
+    headers: {
+      "x-cassandra-token": process.env.ASTRA_DB_APPLICATION_TOKEN,
+      "content-type": "application/json" // TODO: only send for POSTs; sending with GET wasts bandwidth
+    }
+  });
+
+  return await request.json();
+}
 
 app.use(bodyParser.text());
 
@@ -30,6 +46,7 @@ app.post("/game", function(request, response) {
   game_index++;
   let auth_key = crypto.randomBytes(64).toString("hex");
   games[game_index] = {"id": game_index, "type": JSON.parse(request.body)["type"], "board": new Chess(), "joined": (JSON.parse(request.body)["type"] == 0 ? true : false), "auth1": auth_key};
+  query("/v2/keyspaces/chess/dev1", "POST", JSON.stringify({"id": game_index, "auth1": auth_key.toString(), "auth2": "", "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "pgn": "501"}));
   response.send(JSON.stringify({"id": "0".repeat(5 - game_index.toString().length) + game_index.toString(), "auth_key": auth_key}));
 });
 
