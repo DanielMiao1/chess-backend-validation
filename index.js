@@ -4,10 +4,10 @@ import { Chess } from "chess.js";
 import crypto from "crypto";
 import http from "http";
 
-const server_url = "server.multiplayerchess.gq";
+const server_url = process.env.SERVER_URL;
 // const server_url = "localhost";
 
-const server_port = "45318";
+const server_port = "5254";
 // const server_port = "3000";
 
 const app = Express();
@@ -146,6 +146,7 @@ app.post("/api/move/:id([0-9]{5})", function(request, response) {
 
 app.post("/result", function(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
+  console.log("Asdfghjdfgh")
   // HTTPS request
   if (!request.headers["-x-board-id"]) {
     response.status(400);
