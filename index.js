@@ -5,6 +5,8 @@ import crypto from "crypto";
 import http from "http";
 import fetch from "node-fetch";
 
+const database_table = "dev2"
+
 const server_url = process.env.SERVER_URL;
 // const server_url = "localhost";
 
@@ -13,12 +15,7 @@ const server_port = "5254";
 
 const app = Express();
 
-var games = {};
-var game_index = 0;
-
-
 async function query(path, method="GET", body=undefined) {
-  // /v2/keyspaces/chess/dev1/rows
   let request = await fetch(`https://${process.env.ASTRA_DB_ID}-${process.env.ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest${path}`, {
     method: method,
     body: body,
@@ -29,12 +26,12 @@ async function query(path, method="GET", body=undefined) {
   });
 
   return await request.json();
-}
+};
 
 app.use(bodyParser.text());
 
 app.listen(34874, function() {
-  console.log("Started listening for requests on port 34874");
+  console.warn("Started listening for requests on port 34874"); // console.WARN?
 });
 
 app.get("/", function(request, response) {
@@ -43,139 +40,167 @@ app.get("/", function(request, response) {
 
 app.post("/game", function(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  game_index++;
-  let auth_key = crypto.randomBytes(64).toString("hex");
-  games[game_index] = {"id": game_index, "type": JSON.parse(request.body)["type"], "board": new Chess(), "joined": (JSON.parse(request.body)["type"] == 0 ? true : false), "auth1": auth_key};
-  query("/v2/keyspaces/chess/dev1", "POST", JSON.stringify({"id": game_index, "auth1": auth_key.toString(), "auth2": "", "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "pgn": "501"}));
-  response.send(JSON.stringify({"id": "0".repeat(5 - game_index.toString().length) + game_index.toString(), "auth_key": auth_key}));
+  query("/v2/keyspaces/chess/constants/INDEX").then(function(row) {
+    let game_index = parseInt(row["data"][0]["value"]);
+    let request_body = JSON.parse(request.body);
+    let auth_key = crypto.randomBytes(64).toString("hex");
+    // games[game_index] = {"id": game_index, "type": request_body["type"], "board": new Chess(), "joined": (request_body["type"] == 0 ? true : false), "auth1": auth_key};
+    const date = new Date();
+    query("/v2/keyspaces/chess/" + database_table, "POST", JSON.stringify({"id": game_index, "auth1": auth_key.toString(), "auth2": "", "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "pgn": `[Event \"Online chess game\"]\n[Site \"multiplayerchess.gq\"]\n[Date \"${date.getUTCDate()}.${date.getUTCMonth() + 1}.${date.getUTCDate()}\"]\n[UTCTime \"${date.getUTCHours()}:${date.getUTCMinutes()}:${date.getUTCSeconds()}\"]\n[Round \"1\"]\n[White "Anonymous"]\n[Black "${request_body["type"] == 0 ? "Stockfish" : "Anonymous"}"]\n[Result "*"]\n\n\n*`}));
+    query("/v2/keyspaces/chess/constants/INDEX", "PATCH", JSON.stringify({"value": (game_index + 1).toString()}));
+    response.send(JSON.stringify({"id": "0".repeat(5 - game_index.toString().length) + game_index.toString(), "auth_key": auth_key}));
+  });
 });
 
 app.post("/api/join_status/:id([0-9]{5})", function(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  if (parseInt(request.params.id) > game_index) {
-    response.status(400).send("");
-    return;
-  };
-  if (games[parseInt(request.params.id)]) {
-    response.send(JSON.stringify(games[parseInt(request.params.id)]["joined"]));
-  } else {
-    response.status(400);
-    response.end();
-  }
+  query(`/v2/keyspaces/chess/${database_table}/${parseInt(request.params.id)}`).then(function(data) {
+    if (data["count"] == 0) {
+      response.status(400);
+      return response.end();
+    };
+    response.send(JSON.stringify(Boolean(data["data"][0]["auth2"])))
+  });
 })
 
 app.post("/api/status/:id([0-9]{5})", function(request, response) {
   // TODO: filter out moves that are not available to the requesting player; e.g. using auth methods
   response.setHeader("Access-Control-Allow-Origin", "*");
-  if (parseInt(request.params.id) > game_index) {
-    response.status(400).send("");
-    return;
-  };  
-  if (games[parseInt(request.params.id)]["type"] == "1" && !games[parseInt(request.params.id)]["joined"]) {
-    games[parseInt(request.params.id)]["joined"] = true;
-    let auth_key = crypto.randomBytes(64).toString("hex");
-    games[parseInt(request.params.id)]["auth2"] = auth_key;
-    response.send(JSON.stringify({"auth": auth_key}))
-    return;
-  }
-  let board = games[parseInt(request.params.id)].board;
-  if (games[parseInt(request.params.id)].type == 0 && board.turn() == "b") {
-    response.send(JSON.stringify({"turn": board.turn(), "moves": [], "board": board.board()}))
-  } else {
-    let game = games[parseInt(request.params.id)];
-    let data = {"turn": board.turn(), "board": board.board()};
-    if (!game["joined"]) {
-      data["moves"] = [];
-      response.send(JSON.stringify(data));
+  query(`/v2/keyspaces/chess/${database_table}/${parseInt(request.params.id)}`).then(function(data) {
+    if (data["count"] == 0) {
+      response.status(400).send("");
+      response.end();
+      return;
     };
-    if (request.body == game["auth1"]) {
-      if (board.turn() == "w") {
-        data["moves"] = board.moves({ verbose: true });
-      } else {
-        data["moves"] = [];
-      };
-      response.send(JSON.stringify(data))
-    } else if (request.body == game["auth2"]) {
-      if (board.turn() == "b") {
-        data["moves"] = board.moves({ verbose: true });
-      } else {
-        data["moves"] = [];
-      };
-      response.send(JSON.stringify(data))
-    } else {
+    data = data["data"][0];
+    let is_computer_game = data["pgn"].includes("Stockfish");
+    if (!is_computer_game && !data["auth2"]) {
+      let auth_key = crypto.randomBytes(64).toString("hex");
+      query(`/v2/keyspaces/chess/${database_table}/${parseInt(request.params.id).toString()}`, "PATCH", JSON.stringify({"auth2": auth_key}));
+      response.send(JSON.stringify({"auth": auth_key}))
+      return;
+    };
+
+    let board = new Chess(data["fen"]);
+    if (is_computer_game && board.turn() == "b") { // TODO: add option for computer to play white; change this clause
       response.send(JSON.stringify({"turn": board.turn(), "moves": [], "board": board.board()}))
+    } else {
+      // let game = games[parseInt(request.params.id)];
+      let response_data = {"turn": board.turn(), moves: [], "board": board.board()};
+      if (!is_computer_game && !data["auth2"]) {
+        response.send(JSON.stringify(response_data));
+      };
+      if (request.body == data["auth1"]) {
+        if (board.turn() == "w") {
+          response_data["moves"] = board.moves({ verbose: true });
+        };
+        response.send(JSON.stringify(response_data))
+      } else if (request.body == data["auth2"]) {
+        if (board.turn() == "b") {
+          response_data["moves"] = board.moves({ verbose: true });
+        };
+        response.send(JSON.stringify(response_data))
+      } else {
+        response.send(JSON.stringify({"turn": board.turn(), "moves": [], "board": board.board()}))
+      };
     };
-  };
+  });
 });
 
 app.post("/api/move/:id([0-9]{5})", function(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  let board = games[parseInt(request.params.id)].board;
-  let request_body = JSON.parse(request.body)
-  let uuid = crypto.randomUUID();
-  if (parseInt(request.params.id) > game_index || !board.moves().includes(request_body["move"])) {
-    response.status(400).send("");
-    response.end();
-    return;
-  };
-  board.move(request_body["move"]);
-  if (games[parseInt(request.params.id)].type == 0) {
-    const request_ = http.request({
-      method: "POST",
-      hostname: server_url,
-      port: server_port,
-      path: "/auth",
-      headers: {"Content-Type": "text/plain", "-x-uuid": uuid}
-    }, (result) => {
-      result.on("data", (data) => {
-        const request_ = http.request({
-          method: "POST",
-          hostname: server_url,
-          port: server_port,
-          path: "/result",
-          headers: {"Content-Type": "text/plain", "-x-uuid": uuid, "-x-fen": board.fen(), "-x-board-id": games[parseInt(request.params.id)].id}
-        }, (result) => {
-          result.on("data", (data) => {
-            console
+  query(`/v2/keyspaces/chess/${database_table}/${parseInt(request.params.id)}`).then(function(data) {
+    if (data["count"] == 0) {
+      response.status(400).send("");
+      return response.end();
+    };
+    data = data["data"][0];
+    let board = new Chess(data["fen"]);
+    let is_computer_game = data["pgn"].includes("Stockfish");
+    let request_body = JSON.parse(request.body)
+    if (!board.moves().includes(request_body["move"])) {
+      response.status(400).send("");
+      return response.end();
+    };
+    board.move(request_body["move"]);
+    let new_pgn = data["pgn"].slice(0, -1);
+    if (board.turn() == "b") {
+      new_pgn += `${data["fen"].split(" ").slice(-1)[0]}. ${request_body["move"]} `;
+    } else {
+      new_pgn += `${request_body["move"]} `;
+    };
+    new_pgn += "*";
+    query(`/v2/keyspaces/chess/${database_table}/${parseInt(request.params.id).toString()}`, "PATCH", JSON.stringify({"fen": board.fen(), "pgn": new_pgn}));
+    if (is_computer_game) {
+      let uuid = crypto.randomUUID();
+      const request_ = http.request({
+        method: "POST",
+        hostname: server_url,
+        port: server_port,
+        path: "/auth",
+        headers: {"Content-Type": "text/plain", "-x-uuid": uuid}
+      }, (result) => {
+        result.on("data", (data) => {
+          const request_ = http.request({
+            method: "POST",
+            hostname: server_url,
+            port: server_port,
+            path: "/result",
+            headers: {"Content-Type": "text/plain", "-x-uuid": uuid, "-x-fen": board.fen(), "-x-board-id": parseInt(request.params.id).toString()}
+          }, (result) => {
+            result.on("data", (data) => { });
           });
+          
+          request_.on("error", error => {
+            console.error("From 2nd step of 3WH;");
+            console.error(error);
+          });
+          
+          request_.write((parseInt(data) / parseInt(process.env.SECRET2) * parseInt(process.env.SECRET)).toString());
+          request_.end();
         });
-        
-        request_.on("error", error => {
-          console.error("From 2nd step of 3WH;");
-          console.error(error);
-        });
-        
-        request_.write((parseInt(data) / parseInt(process.env.SECRET2) * parseInt(process.env.SECRET)).toString());
-        request_.end();
       });
-    });
-    
-    request_.on("error", error => {
-      console.error("From 1st step of 3WH;");
-      console.error(error);
-    });
-    
-    request_.write("");
-    request_.end();
-  };
-  response.send("");
+      
+      request_.on("error", error => {
+        console.error("From 1st step of 3WH;");
+        console.error(error);
+      });
+      
+      request_.write("");
+      request_.end();
+    };
+    response.send("");
+  });
 });
 
 app.post("/result", function(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  console.log("Asdfghjdfgh")
   // HTTPS request
   if (!request.headers["-x-board-id"]) {
     response.status(400);
     response.end();
     return;
-  } else if ((parseInt(request.headers["-x-board-id"]) - parseInt(process.env.SECRET3) + parseInt(process.env.SECRET2)) / parseInt(process.env.SECRET3) > game_index) {
-    response.status(400);
-    response.end();
-    return;
   };
-  let board = games[(parseInt(request.headers["-x-board-id"]) - parseInt(process.env.SECRET3) + parseInt(process.env.SECRET2)) / parseInt(process.env.SECRET3)].board;
-  board.move(request.body, {sloppy: true});
-  response.end()
+  let board_id = (parseInt(request.headers["-x-board-id"]) - parseInt(process.env.SECRET3) + parseInt(process.env.SECRET2)) / parseInt(process.env.SECRET3);
+  query(`/v2/keyspaces/chess/${database_table}/${parseInt(board_id)}`).then(function(data) {
+    if (data["count"] == 0) {
+      response.status(400);
+      response.end();
+      return;
+    };
+    data = data["data"][0];
+
+    let board = new Chess(data["fen"]);
+    let SAN_move = board.move(request.body, {sloppy: true}).san;
+    let new_pgn = data["pgn"].slice(0, -1);
+    if (board.turn() == "b") {
+      new_pgn += `${data["fen"].split(" ").slice(-1)[0]}. ${SAN_move} `;
+    } else {
+      new_pgn += `${SAN_move} `;
+    };
+    new_pgn += "*";
+    query(`/v2/keyspaces/chess/${database_table}/${parseInt(board_id).toString()}`, "PATCH", JSON.stringify({"fen": board.fen(), "pgn": new_pgn}));
+    response.end();
+  });
 });
 
